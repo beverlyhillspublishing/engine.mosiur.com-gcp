@@ -1,0 +1,539 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── MULTI-TENANCY ──────────────────────────────────────────────────────────
+
+model Organization {
+  id                    String   @id @default(cuid())
+  name                  String
+  slug                  String   @unique
+  logoUrl               String?
+  timezone              String   @default("UTC")
+  planId                String   @default("starter")
+  stripeCustomerId      String?  @unique
+  stripeSubscriptionId  String?  @unique
+  subscriptionStatus    String   @default("trialing")
+  emailsSentThisMonth   Int      @default(0)
+  monthlyEmailLimit     Int      @default(1000)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  members          OrganizationMember[]
+  contacts         Contact[]
+  lists            List[]
+  segments         Segment[]
+  campaigns        Campaign[]
+  templates        EmailTemplate[]
+  automations      Automation[]
+  senderProfiles   SenderProfile[]
+  apiKeys          ApiKey[]
+  webhookEndpoints WebhookEndpoint[]
+  suppressionList  SuppressionEntry[]
+  customFields     CustomField[]
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  avatarUrl        String?
+  emailVerified    Boolean   @default(false)
+  verifyToken      String?   @unique
+  resetToken       String?   @unique
+  resetTokenExpiry DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  memberships   OrganizationMember[]
+  refreshTokens RefreshToken[]
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  role           Role     @default(MEMBER)
+  joinedAt       DateTime @default(now())
+
+  userId         String
+  organizationId String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  name           String
+  keyHash        String    @unique
+  prefix         String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+// ─── CONTACTS ───────────────────────────────────────────────────────────────
+
+model Contact {
+  id              String        @id @default(cuid())
+  email           String
+  firstName       String?
+  lastName        String?
+  phone           String?
+  tags            String[]      @default([])
+  status          ContactStatus @default(SUBSCRIBED)
+  source          String?
+  ipAddress       String?
+  doubleOptIn     Boolean       @default(false)
+  doubleOptInAt   DateTime?
+  unsubscribedAt  DateTime?
+  bouncedAt       DateTime?
+  customData      Json          @default("{}")
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  listMemberships       ListContact[]
+  events                ContactEvent[]
+  automationEnrollments AutomationEnrollment[]
+
+  @@unique([email, organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, email])
+}
+
+enum ContactStatus {
+  SUBSCRIBED
+  UNSUBSCRIBED
+  BOUNCED
+  COMPLAINED
+  PENDING_OPTIN
+}
+
+model CustomField {
+  id             String          @id @default(cuid())
+  name           String
+  slug           String
+  fieldType      CustomFieldType
+  options        String[]        @default([])
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime        @default(now())
+
+  @@unique([slug, organizationId])
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
+// ─── LISTS & SEGMENTS ───────────────────────────────────────────────────────
+
+model List {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  doubleOptIn    Boolean  @default(false)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  contacts  ListContact[]
+  campaigns CampaignList[]
+}
+
+model ListContact {
+  listId    String
+  contactId String
+  addedAt   DateTime @default(now())
+  list      List    @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([listId, contactId])
+}
+
+model Segment {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  filterRules    Json
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  campaigns CampaignSegment[]
+}
+
+// ─── EMAIL PROVIDERS ────────────────────────────────────────────────────────
+
+model SenderProfile {
+  id              String        @id @default(cuid())
+  name            String
+  provider        EmailProvider
+  isDefault       Boolean       @default(false)
+  encryptedConfig String
+  fromEmail       String
+  fromName        String
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+enum EmailProvider {
+  SMTP
+  SENDGRID
+  SES
+  MAILGUN
+}
+
+// ─── TEMPLATES ──────────────────────────────────────────────────────────────
+
+model EmailTemplate {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  category       String?
+  thumbnailUrl   String?
+  htmlContent    String   @db.Text
+  textContent    String?  @db.Text
+  designJson     Json?
+  isGlobal       Boolean  @default(false)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  campaigns Campaign[]
+}
+
+// ─── CAMPAIGNS ──────────────────────────────────────────────────────────────
+
+model Campaign {
+  id              String         @id @default(cuid())
+  name            String
+  status          CampaignStatus @default(DRAFT)
+  subject         String
+  previewText     String?
+  fromName        String
+  fromEmail       String
+  replyToEmail    String?
+  htmlContent     String?        @db.Text
+  textContent     String?        @db.Text
+  designJson      Json?
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  senderProfileId String?
+  templateId      String?
+  template        EmailTemplate? @relation(fields: [templateId], references: [id])
+  organizationId  String
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  lists    CampaignList[]
+  segments CampaignSegment[]
+  sends    EmailSend[]
+  abTest   AbTest?
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PAUSED
+  CANCELED
+}
+
+model CampaignList {
+  campaignId String
+  listId     String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  list       List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, listId])
+}
+
+model CampaignSegment {
+  campaignId String
+  segmentId  String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  segment    Segment  @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, segmentId])
+}
+
+// ─── A/B TESTING ────────────────────────────────────────────────────────────
+
+model AbTest {
+  id                String       @id @default(cuid())
+  campaignId        String       @unique
+  campaign          Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  testType          AbTestType
+  variantBSubject   String?
+  variantBHtml      String?      @db.Text
+  splitPercent      Int          @default(20)
+  winnerMetric      WinnerMetric @default(OPEN_RATE)
+  winnerPickedAt    DateTime?
+  winnerVariant     String?
+  testDurationHours Int          @default(4)
+  createdAt         DateTime     @default(now())
+}
+
+enum AbTestType {
+  SUBJECT_LINE
+  CONTENT
+}
+
+enum WinnerMetric {
+  OPEN_RATE
+  CLICK_RATE
+}
+
+// ─── EMAIL SENDS & EVENTS ───────────────────────────────────────────────────
+
+model EmailSend {
+  id               String     @id @default(cuid())
+  campaignId       String?
+  campaign         Campaign?  @relation(fields: [campaignId], references: [id])
+  automationStepId String?
+  contactId        String
+  email            String
+  status           SendStatus @default(QUEUED)
+  variant          String?
+  messageId        String?
+  sentAt           DateTime?
+  openedAt         DateTime?
+  openCount        Int        @default(0)
+  clickCount       Int        @default(0)
+  bouncedAt        DateTime?
+  bounceType       String?
+  complainedAt     DateTime?
+  unsubscribedAt   DateTime?
+  createdAt        DateTime   @default(now())
+
+  events EmailEvent[]
+
+  @@index([campaignId])
+  @@index([contactId])
+  @@index([status])
+}
+
+enum SendStatus {
+  QUEUED
+  SENDING
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
+  FAILED
+}
+
+model EmailEvent {
+  id         String    @id @default(cuid())
+  sendId     String
+  send       EmailSend @relation(fields: [sendId], references: [id], onDelete: Cascade)
+  type       EventType
+  metadata   Json?
+  occurredAt DateTime  @default(now())
+
+  @@index([sendId, type])
+}
+
+enum EventType {
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
+}
+
+model ContactEvent {
+  id         String   @id @default(cuid())
+  contactId  String
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type       String
+  metadata   Json?
+  occurredAt DateTime @default(now())
+
+  @@index([contactId])
+}
+
+// ─── TRACKING LINKS ─────────────────────────────────────────────────────────
+
+model TrackedLink {
+  id          String   @id @default(cuid())
+  campaignId  String?
+  sendId      String?
+  originalUrl String
+  token       String   @unique @default(cuid())
+  clickCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+// ─── AUTOMATION / DRIP ──────────────────────────────────────────────────────
+
+model Automation {
+  id             String            @id @default(cuid())
+  name           String
+  status         AutomationStatus  @default(DRAFT)
+  trigger        AutomationTrigger
+  triggerConfig  Json?
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  steps       AutomationStep[]
+  enrollments AutomationEnrollment[]
+}
+
+enum AutomationStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum AutomationTrigger {
+  LIST_SUBSCRIBE
+  LIST_UNSUBSCRIBE
+  CONTACT_CREATED
+  TAG_ADDED
+  CAMPAIGN_OPENED
+  CAMPAIGN_CLICKED
+  DATE_FIELD
+  MANUAL
+}
+
+model AutomationStep {
+  id           String             @id @default(cuid())
+  automationId String
+  automation   Automation         @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  stepOrder    Int
+  stepType     AutomationStepType
+  config       Json
+  createdAt    DateTime           @default(now())
+
+  enrollments AutomationEnrollment[]
+
+  @@unique([automationId, stepOrder])
+}
+
+enum AutomationStepType {
+  SEND_EMAIL
+  WAIT_DELAY
+  CONDITION
+  ADD_TAG
+  REMOVE_TAG
+  UPDATE_FIELD
+}
+
+model AutomationEnrollment {
+  id            String           @id @default(cuid())
+  automationId  String
+  automation    Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  currentStepId String?
+  currentStep   AutomationStep?  @relation(fields: [currentStepId], references: [id])
+  status        EnrollmentStatus @default(ACTIVE)
+  enrolledAt    DateTime         @default(now())
+  completedAt   DateTime?
+  nextRunAt     DateTime?
+
+  @@unique([automationId, contactId])
+  @@index([status, nextRunAt])
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  CANCELED
+}
+
+// ─── SUPPRESSION ────────────────────────────────────────────────────────────
+
+model SuppressionEntry {
+  id             String            @id @default(cuid())
+  email          String
+  reason         SuppressionReason
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime          @default(now())
+
+  @@unique([email, organizationId])
+  @@index([organizationId, email])
+}
+
+enum SuppressionReason {
+  UNSUBSCRIBED
+  HARD_BOUNCE
+  COMPLAINT
+  MANUAL
+}
+
+// ─── WEBHOOKS ───────────────────────────────────────────────────────────────
+
+model WebhookEndpoint {
+  id             String   @id @default(cuid())
+  url            String
+  secret         String
+  events         String[]
+  isActive       Boolean  @default(true)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id             String          @id @default(cuid())
+  endpointId     String
+  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  event          String
+  payload        Json
+  responseStatus Int?
+  responseBody   String?
+  attemptCount   Int             @default(0)
+  deliveredAt    DateTime?
+  nextRetryAt    DateTime?
+  createdAt      DateTime        @default(now())
+}
