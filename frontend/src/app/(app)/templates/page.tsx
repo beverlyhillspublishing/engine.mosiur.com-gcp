@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { formatDate } from '@/lib/utils';
-import { MailIcon, Plus, Trash2, Copy, Globe } from 'lucide-react';
+import { MailIcon, Plus, Trash2, Copy, Globe, Sparkles } from 'lucide-react';
+import { AiBuilderDialog } from '@/components/ai-builder/AiBuilderDialog';
 
 export default function TemplatesPage() {
   const { currentOrg } = useAuth();
@@ -19,6 +20,7 @@ export default function TemplatesPage() {
   const api = orgApi(orgId);
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [name, setName] = useState('');
   const [html, setHtml] = useState('');
 
@@ -50,7 +52,10 @@ export default function TemplatesPage() {
           <h1 className="text-3xl font-bold text-slate-900">Templates</h1>
           <p className="text-slate-500 mt-1">Reusable email designs for your campaigns</p>
         </div>
-        <Button onClick={() => setOpen(true)}><Plus className="w-4 h-4 mr-2" />New Template</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setAiOpen(true)}><Sparkles className="w-4 h-4 mr-2" />AI Build</Button>
+          <Button onClick={() => setOpen(true)}><Plus className="w-4 h-4 mr-2" />New Template</Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -93,6 +98,13 @@ export default function TemplatesPage() {
           ))}
         </div>
       )}
+
+      <AiBuilderDialog
+        open={aiOpen}
+        onOpenChange={setAiOpen}
+        onAccept={(generatedHtml) => { setHtml(generatedHtml); setOpen(true); }}
+        orgId={orgId}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">

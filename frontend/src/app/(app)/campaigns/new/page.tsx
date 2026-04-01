@@ -11,8 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Check, ChevronRight } from 'lucide-react';
+import { Check, ChevronRight, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AiBuilderDialog } from '@/components/ai-builder/AiBuilderDialog';
 
 const STEPS = ['Details', 'Audience', 'Content', 'Schedule', 'Review'];
 
@@ -26,6 +27,7 @@ export default function NewCampaignPage() {
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
   const [htmlContent, setHtmlContent] = useState('');
+  const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
 
   const { data: lists } = useQuery({
     queryKey: ['lists', orgId],
@@ -148,7 +150,18 @@ export default function NewCampaignPage() {
               <CardHeader className="px-0 pt-0">
                 <CardTitle>Email Content</CardTitle>
               </CardHeader>
-              <p className="text-sm text-slate-500">Paste your HTML content or choose a template below.</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-500">Paste your HTML content or choose a template below.</p>
+                <Button variant="outline" size="sm" onClick={() => setAiBuilderOpen(true)}>
+                  <Sparkles className="w-4 h-4 mr-2" />Generate with AI
+                </Button>
+              </div>
+              <AiBuilderDialog
+                open={aiBuilderOpen}
+                onOpenChange={setAiBuilderOpen}
+                onAccept={(html) => setHtmlContent(html)}
+                orgId={orgId}
+              />
               <div className="space-y-1">
                 <Label>HTML Content</Label>
                 <textarea
