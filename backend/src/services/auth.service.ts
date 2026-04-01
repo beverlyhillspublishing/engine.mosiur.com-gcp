@@ -63,6 +63,9 @@ export async function loginUser(email: string, password: string) {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) throw new AppError(401, 'Invalid email or password');
 
+  if (!user.passwordHash) {
+    throw new AppError(401, 'This account uses social login. Please sign in with Google or Apple.');
+  }
   const valid = await comparePassword(password, user.passwordHash);
   if (!valid) throw new AppError(401, 'Invalid email or password');
 

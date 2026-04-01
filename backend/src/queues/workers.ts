@@ -7,6 +7,8 @@ import { processCsvImport } from './jobs/process-csv-import.job';
 import { processAutomationStep } from './jobs/automation-step.job';
 import { processAbTestSelectWinner } from './jobs/abtest-select-winner.job';
 import { processWebhookDispatch } from './jobs/webhook-dispatch.job';
+import { processSyncMailAccount } from './jobs/sync-mail-account.job';
+import { mailSyncQueue } from './queues';
 import { logger } from '../utils/logger';
 
 let workers: Worker[] = [];
@@ -47,7 +49,20 @@ export function startWorkers(): void {
     limiter: { max: 100, duration: 1000 },
   });
 
-  workers = [campaignWorker, importWorker, automationWorker, abTestWorker, webhookWorker];
+  const mailSyncWorker = new Worker('mail-sync', processSyncMailAccount, {
+    connection: bullRedisConnection,
+    concurrency: 3,
+  });
+
+  // Schedule periodic 15-min sync for all accounts
+  const MAIL_SYNC_INTERVAL_MS = parseInt(process.env.MAIL_SYNC_INTERVAL_MS || '900000', 10);
+  await mailSyncQueue.add(
+    'periodic-all',
+    {},
+    { repeat: { every: MAIL_SYNC_INTERVAL_MS }, jobId: 'mail-sync-periodic' },
+  );
+
+  workers = [campaignWorker, importWorker, automationWorker, abTestWorker, webhookWorker, mailSyncWorker];
 
   for (const worker of workers) {
     worker.on('completed', (job) => {

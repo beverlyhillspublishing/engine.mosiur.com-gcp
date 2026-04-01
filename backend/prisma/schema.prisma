@@ -36,12 +36,26 @@ model Organization {
   webhookEndpoints WebhookEndpoint[]
   suppressionList  SuppressionEntry[]
   customFields     CustomField[]
+
+  // ─── Suite Apps ───────────────────────────────────────────────
+  mailAccounts     MailAccount[]
+  mailThreads      MailThread[]
+  mailMessages     MailMessage[]
+  driveFolders     DriveFolder[]
+  driveFiles       DriveFile[]
+  tpCalendars      TpCalendar[]
+  calendarEvents   CalendarEvent[]
+  noteFolders      NoteFolder[]
+  notes            Note[]
+  reminderLists    ReminderList[]
+  reminders        Reminder[]
+  tpDocuments      TpDocument[]
 }
 
 model User {
   id               String    @id @default(cuid())
   email            String    @unique
-  passwordHash     String
+  passwordHash     String?
   firstName        String
   lastName         String
   avatarUrl        String?
@@ -54,6 +68,50 @@ model User {
 
   memberships   OrganizationMember[]
   refreshTokens RefreshToken[]
+  oauthAccounts OAuthAccount[]
+  passkeys      Passkey[]
+
+  // ─── Suite Apps ───────────────────────────────────────────────
+  mailAccounts    MailAccount[]
+  driveFolders    DriveFolder[]
+  driveFiles      DriveFile[]
+  tpCalendars     TpCalendar[]
+  calendarEvents  CalendarEvent[]
+  noteFolders     NoteFolder[]
+  notes           Note[]
+  reminderLists   ReminderList[]
+  reminders       Reminder[]
+  tpDocuments     TpDocument[]
+  docCollabs      DocCollaborator[]
+}
+
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  provider          String   // "google" | "apple"
+  providerAccountId String
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Passkey {
+  id           String    @id @default(cuid())
+  credentialId String    @unique
+  publicKey    Bytes
+  counter      BigInt    @default(0)
+  deviceType   String    @default("singleDevice")
+  backedUp     Boolean   @default(false)
+  transports   String[]  @default([])
+  name         String?
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastUsedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model OrganizationMember {
@@ -536,4 +594,276 @@ model WebhookDelivery {
   deliveredAt    DateTime?
   nextRetryAt    DateTime?
   createdAt      DateTime        @default(now())
+}
+
+// ─── MAIL (IMAP WEBMAIL) ─────────────────────────────────────────────────────
+
+model MailAccount {
+  id             String    @id @default(cuid())
+  label          String
+  email          String
+  provider       String    // "gmail" | "outlook" | "icloud" | "yahoo" | "other"
+  imapHost       String
+  imapPort       Int       @default(993)
+  smtpHost       String
+  smtpPort       Int       @default(587)
+  username       String
+  encryptedPass  String
+  useSSL         Boolean   @default(true)
+  isDefault      Boolean   @default(false)
+  lastSyncAt     DateTime?
+  syncStatus     String    @default("idle")
+  syncError      String?
+  userId         String
+  organizationId String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  threads        MailThread[]
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId, userId])
+}
+
+model MailThread {
+  id                String      @id @default(cuid())
+  accountId         String
+  account           MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  subject           String?
+  snippet           String?
+  isRead            Boolean     @default(false)
+  isStarred         Boolean     @default(false)
+  isArchived        Boolean     @default(false)
+  isTrashed         Boolean     @default(false)
+  labels            String[]    @default([])
+  participantEmails String[]    @default([])
+  messageCount      Int         @default(1)
+  lastMessageAt     DateTime
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  messages          MailMessage[]
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([organizationId, accountId, lastMessageAt])
+  @@index([organizationId, isArchived])
+}
+
+model MailMessage {
+  id             String     @id @default(cuid())
+  threadId       String
+  thread         MailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  imapUid        Int
+  messageId      String?
+  fromEmail      String
+  fromName       String?
+  toEmails       String[]   @default([])
+  ccEmails       String[]   @default([])
+  subject        String?
+  bodyHtml       String?    @db.Text
+  bodyText       String?    @db.Text
+  hasAttachments Boolean    @default(false)
+  sentAt         DateTime
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime   @default(now())
+
+  @@unique([threadId, imapUid])
+  @@index([organizationId, sentAt])
+}
+
+// ─── DRIVE (FILE STORAGE) ────────────────────────────────────────────────────
+
+model DriveFolder {
+  id             String        @id @default(cuid())
+  name           String
+  color          String        @default("#6366f1")
+  parentId       String?
+  parent         DriveFolder?  @relation("FolderTree", fields: [parentId], references: [id])
+  children       DriveFolder[] @relation("FolderTree")
+  organizationId String
+  createdById    String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User          @relation(fields: [createdById], references: [id])
+  files          DriveFile[]
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId, parentId])
+}
+
+model DriveFile {
+  id             String       @id @default(cuid())
+  name           String
+  mimeType       String
+  size           BigInt       @default(0)
+  gcsKey         String
+  thumbnailUrl   String?
+  folderId       String?
+  folder         DriveFolder? @relation(fields: [folderId], references: [id])
+  organizationId String
+  uploadedById   String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy     User         @relation(fields: [uploadedById], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, folderId])
+}
+
+// ─── CALENDAR ────────────────────────────────────────────────────────────────
+
+model TpCalendar {
+  id             String          @id @default(cuid())
+  name           String
+  color          String          @default("#3b82f6")
+  isDefault      Boolean         @default(false)
+  organizationId String
+  createdById    String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  events         CalendarEvent[]
+  createdAt      DateTime        @default(now())
+
+  @@index([organizationId])
+}
+
+model CalendarEvent {
+  id             String          @id @default(cuid())
+  calendarId     String
+  calendar       TpCalendar      @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?         @db.Text
+  location       String?
+  allDay         Boolean         @default(false)
+  startAt        DateTime
+  endAt          DateTime
+  rrule          String?
+  campaignId     String?
+  organizationId String
+  createdById    String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  attendees      EventAttendee[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organizationId, startAt])
+  @@index([organizationId, calendarId])
+}
+
+model EventAttendee {
+  id      String        @id @default(cuid())
+  eventId String
+  event   CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  email   String
+  name    String?
+  rsvp    String        @default("pending")
+}
+
+// ─── NOTES ───────────────────────────────────────────────────────────────────
+
+model NoteFolder {
+  id             String   @id @default(cuid())
+  name           String
+  color          String?
+  organizationId String
+  createdById    String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  notes          Note[]
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+}
+
+model Note {
+  id             String      @id @default(cuid())
+  title          String      @default("Untitled Note")
+  content        Json        @default("{}")
+  folderId       String?
+  folder         NoteFolder? @relation(fields: [folderId], references: [id])
+  isPinned       Boolean     @default(false)
+  organizationId String
+  createdById    String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([organizationId, isPinned])
+  @@index([organizationId, updatedAt])
+}
+
+// ─── REMINDERS ───────────────────────────────────────────────────────────────
+
+model ReminderList {
+  id             String     @id @default(cuid())
+  name           String
+  color          String     @default("#ef4444")
+  organizationId String
+  createdById    String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  reminders      Reminder[]
+  createdAt      DateTime   @default(now())
+
+  @@index([organizationId])
+}
+
+model Reminder {
+  id             String       @id @default(cuid())
+  listId         String
+  list           ReminderList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  title          String
+  notes          String?
+  isCompleted    Boolean      @default(false)
+  dueDate        DateTime?
+  priority       Int          @default(0)
+  parentId       String?
+  parent         Reminder?    @relation("Subtasks", fields: [parentId], references: [id])
+  subtasks       Reminder[]   @relation("Subtasks")
+  organizationId String
+  createdById    String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, listId, isCompleted])
+}
+
+// ─── DOCUMENTS (iWORK SUITE) ─────────────────────────────────────────────────
+
+enum DocumentType {
+  PAGES
+  NUMBERS
+  KEYNOTE
+}
+
+model TpDocument {
+  id             String         @id @default(cuid())
+  title          String         @default("Untitled")
+  type           DocumentType
+  content        Json           @default("{}")
+  thumbnailUrl   String?
+  organizationId String
+  createdById    String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User           @relation(fields: [createdById], references: [id])
+  collaborators  DocCollaborator[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([organizationId, type])
+}
+
+model DocCollaborator {
+  id         String     @id @default(cuid())
+  documentId String
+  document   TpDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User       @relation(fields: [userId], references: [id])
+  role       String     @default("viewer")
+  addedAt    DateTime   @default(now())
+
+  @@unique([documentId, userId])
 }

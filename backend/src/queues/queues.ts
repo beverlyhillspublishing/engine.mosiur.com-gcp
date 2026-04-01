@@ -7,4 +7,6 @@ export const automationQueue = new Queue('automations', { connection: bullRedisC
 export const abTestQueue = new Queue('ab-tests', { connection: bullRedisConnection });
 export const webhookQueue = new Queue('webhooks', { connection: bullRedisConnection });
 
-export const allQueues = [campaignQueue, importQueue, automationQueue, abTestQueue, webhookQueue];
+export const mailSyncQueue = new Queue('mail-sync', { connection: bullRedisConnection });
+
+export const allQueues = [campaignQueue, importQueue, automationQueue, abTestQueue, webhookQueue, mailSyncQueue];

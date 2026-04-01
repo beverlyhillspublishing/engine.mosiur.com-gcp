@@ -1,7 +1,8 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, setAccessToken, type User, type OrgMembership } from '@/lib/api';
+import { startAuthentication } from '@simplewebauthn/browser';
+import { authApi, passkeyApi, setAccessToken, type User, type OrgMembership } from '@/lib/api';
 
 interface AuthState {
   user: User | null;
@@ -9,6 +10,8 @@ interface AuthState {
   currentOrg: OrgMembership | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithPasskey: (email?: string) => Promise<void>;
+  loginWithToken: (token: string) => Promise<void>;
   logout: () => Promise<void>;
   switchOrg: (orgId: string) => void;
 }
@@ -21,42 +24,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentOrg, setCurrentOrg] = useState<OrgMembership | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const setAuthState = useCallback((userData: User, orgs: OrgMembership[]) => {
+  const applySession = useCallback((userData: User, orgs: OrgMembership[]) => {
     setUser(userData);
     setOrganizations(orgs);
-    // Restore last selected org from localStorage
     const lastOrgId = typeof window !== 'undefined' ? localStorage.getItem('lastOrgId') : null;
     const org = orgs.find((o) => o.id === lastOrgId) || orgs[0] || null;
     setCurrentOrg(org);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('userOrgs', JSON.stringify(orgs));
+    }
   }, []);
 
-  // Restore session on mount
+  // Restore session on mount via refresh token cookie
   useEffect(() => {
-    authApi.refresh()
+    authApi
+      .refresh()
       .then((res) => {
         setAccessToken(res.data.accessToken);
         return authApi.me();
       })
       .then((res) => {
-        // me() only returns user — re-fetch login to get orgs
-        // We'll use a separate stored orgs approach
-        const storedOrgs = typeof window !== 'undefined' ? localStorage.getItem('userOrgs') : null;
-        const orgs: OrgMembership[] = storedOrgs ? JSON.parse(storedOrgs) : [];
-        setAuthState(res.data.user, orgs);
+        applySession(res.data.user, res.data.organizations);
       })
       .catch(() => {
         setAccessToken(null);
       })
       .finally(() => setLoading(false));
-  }, [setAuthState]);
+  }, [applySession]);
 
+  /** Standard email + password login */
   const login = async (email: string, password: string) => {
     const res = await authApi.login({ email, password });
     setAccessToken(res.data.accessToken);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('userOrgs', JSON.stringify(res.data.organizations));
-    }
-    setAuthState(res.data.user, res.data.organizations);
+    applySession(res.data.user, res.data.organizations);
+  };
+
+  /**
+   * Passkey login using WebAuthn.
+   * If email is supplied, shows only that user's registered passkeys.
+   * If omitted, the browser presents all resident (discoverable) passkeys.
+   */
+  const loginWithPasskey = async (email?: string) => {
+    // 1. Get authentication challenge from server
+    const optionsRes = await passkeyApi.authOptions(email);
+    const options = optionsRes.data;
+
+    // 2. Trigger platform authenticator (Face ID, Touch ID, Windows Hello, etc.)
+    const credential = await startAuthentication(options);
+
+    // 3. Verify with server — returns same shape as email/password login
+    const verifyRes = await passkeyApi.authVerify(credential);
+    setAccessToken(verifyRes.data.accessToken);
+    applySession(verifyRes.data.user, verifyRes.data.organizations);
+  };
+
+  /**
+   * Called by the OAuth callback page after the backend redirects back with a token.
+   * Sets the access token and fetches user + orgs from /auth/me.
+   */
+  const loginWithToken = async (token: string) => {
+    setAccessToken(token);
+    const res = await authApi.me();
+    applySession(res.data.user, res.data.organizations);
   };
 
   const logout = async () => {
@@ -82,7 +111,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, organizations, currentOrg, loading, login, logout, switchOrg }}>
+    <AuthContext.Provider
+      value={{ user, organizations, currentOrg, loading, login, loginWithPasskey, loginWithToken, logout, switchOrg }}
+    >
       {children}
     </AuthContext.Provider>
   );

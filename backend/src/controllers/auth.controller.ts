@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as authService from '../services/auth.service';
+import { prisma } from '../config/database';
 
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
@@ -98,6 +99,23 @@ export async function verifyEmail(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export async function me(req: Request, res: Response) {
-  res.json({ user: req.user });
+export async function me(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = req.user!;
+    const memberships = await prisma.organizationMember.findMany({
+      where: { userId: user.id },
+      include: { organization: true },
+    });
+    res.json({
+      user,
+      organizations: memberships.map((m) => ({
+        id: m.organization.id,
+        name: m.organization.name,
+        slug: m.organization.slug,
+        role: m.role,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
 }

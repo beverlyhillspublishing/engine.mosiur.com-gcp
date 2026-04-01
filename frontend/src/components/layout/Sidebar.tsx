@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, Mail, Users, List, GitBranch, Zap, BarChart3,
   Settings, CreditCard, Code, Webhook, LogOut, Mail as MailIcon,
+  Inbox, HardDrive, CalendarDays, StickyNote, CheckSquare, FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -19,6 +20,15 @@ const navItems = [
   { href: '/automations', label: 'Automations', icon: Zap },
   { href: '/templates', label: 'Templates', icon: MailIcon },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+];
+
+const appsItems = [
+  { href: '/mail', label: 'Mail', icon: Inbox },
+  { href: '/drive', label: 'Drive', icon: HardDrive },
+  { href: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { href: '/notes', label: 'Notes', icon: StickyNote },
+  { href: '/reminders', label: 'Reminders', icon: CheckSquare },
+  { href: '/documents', label: 'Documents', icon: FileText },
 ];
 
 const settingsItems = [
@@ -51,6 +61,21 @@ export function Sidebar() {
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Main</div>
         {navItems.map(({ href, label, icon: Icon }) => (
+          <Link key={href} href={href}>
+            <div className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+              pathname.startsWith(href)
+                ? 'bg-primary text-white'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white',
+            )}>
+              <Icon className="w-4 h-4 flex-shrink-0" />
+              {label}
+            </div>
+          </Link>
+        ))}
+
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2 pt-4">Apps</div>
+        {appsItems.map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href}>
             <div className={cn(
               'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
